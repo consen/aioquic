@@ -126,7 +126,7 @@ class QuicConnectionProtocol(asyncio.DatagramProtocol):
             self._connected_waiter = self._loop.create_future()
             await asyncio.shield(self._connected_waiter)
 
-    # asyncio.Transport
+    # asyncio.Transport # 应用层协议提供的回调函数，被传输层自动调用
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
         self._transport = cast(asyncio.DatagramTransport, transport)

@@ -7,7 +7,7 @@ from typing import List, Optional, Tuple
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from ..buffer import Buffer
+from ..buffer import Buffer, size_uint_var
 from .rangeset import RangeSet
 
 PACKET_LONG_HEADER = 0x80
@@ -232,6 +232,69 @@ def encode_quic_retry(
         get_retry_integrity_tag(buf.data, original_destination_cid, version=version)
     )
     assert buf.eof()
+    return buf.data
+
+
+# server close connection during handshake
+def encode_quic_connection_close(
+    version: int,
+    source_cid: bytes,
+    destination_cid: bytes,
+    original_destination_cid: bytes,
+):
+    from .packet_builder import PACKET_MAX_SIZE, PACKET_NUMBER_SEND_SIZE
+    header_size = (1 + 4 + 1 + len(destination_cid) + 1 + len(source_cid) +
+                    size_uint_var(0) + 0 + 2 + 2)
+    print(f"{header_size = }")
+    buf = Buffer(PACKET_MAX_SIZE)
+    buf.seek(header_size)
+    # close frame
+    error_code = QuicErrorCode.APPLICATION_ERROR
+    frame_type = QuicFrameType.PADDING
+    reason_phrase = ""
+    reason_bytes = reason_phrase.encode("utf8")
+    reason_length = len(reason_bytes)
+    buf.push_uint_var(QuicFrameType.TRANSPORT_CLOSE)
+    buf.push_uint_var(error_code)
+    buf.push_uint_var(frame_type)
+    buf.push_uint_var(reason_length)
+    buf.push_bytes(reason_bytes)
+
+    packet_size = buf.tell()
+    print(f"CONN CLOSE packet_size: {packet_size}")
+    buf.seek(0)
+    buf.push_uint8((PACKET_TYPE_INITIAL) | (PACKET_NUMBER_SEND_SIZE - 1))
+    buf.push_uint32(version)
+    buf.push_uint8(len(destination_cid))
+    buf.push_bytes(destination_cid)
+    buf.push_uint8(len(source_cid))
+    buf.push_bytes(source_cid)
+    buf.push_uint8(0) # token length 0
+    length = packet_size - header_size + PACKET_NUMBER_SEND_SIZE + 16
+    print(f"{length = }")   # 22, 0x16
+    packet_number = 0
+    buf.push_uint16(length | 0x4000)
+    buf.push_uint16(packet_number & 0xFFFF) # packet_number
+    print(f"{buf.data.hex() = }")
+    # c1000000010894754365e1154479083d4a6ea8828b842f0040160000
+
+    # encrypt in place
+    from .crypto import CryptoPair
+    crypto = CryptoPair()
+    print(f"{original_destination_cid.hex() = }")
+    crypto.setup_initial(original_destination_cid, is_client=False, version=version)
+    plain = buf.data_slice(0, 0 + packet_size)
+    print(f"{plain.hex() = }")
+    # c100000001083018b08dd074b195084ea5a6a1d57d596e00401600001c0c0000
+    buf.seek(0)
+    buf.push_bytes(
+        crypto.encrypt_packet(
+            plain[0 : header_size],
+            plain[header_size : packet_size],
+            packet_number,
+        )
+    )
+    print(f"CONN CLOSE packet_size2: {buf.tell()}")
     return buf.data
 
 

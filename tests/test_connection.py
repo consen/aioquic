@@ -2703,7 +2703,7 @@ class QuicConnectionTest(TestCase):
         )
         self.assertEqual(drop(client), 1)
 
-    def test_write_connection_close_early(self):
+    def test_write_connection_close_early(self):    # Mark
         client = create_standalone_client(self)
 
         builder = QuicPacketBuilder(

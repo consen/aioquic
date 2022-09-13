@@ -882,7 +882,7 @@ class QuicConnection:
 
             try:
                 plain_header, plain_payload, packet_number = crypto.decrypt_packet(
-                    data[start_off:end_off], encrypted_off, space.expected_packet_number
+                    data[start_off:end_off], encrypted_off, space.expected_packet_number # 从这看，第一个packet number一定是0，重传了呢？
                 )
             except KeyUnavailableError as exc:
                 self._logger.debug(exc)
@@ -2849,7 +2849,7 @@ class QuicConnection:
             buf.push_bytes(reason_bytes)
         else:
             buf = builder.start_frame(
-                QuicFrameType.TRANSPORT_CLOSE,
+                QuicFrameType.TRANSPORT_CLOSE,  # Mark Connection close 帧
                 capacity=TRANSPORT_CLOSE_FRAME_CAPACITY + reason_length,
             )
             buf.push_uint_var(error_code)

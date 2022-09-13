@@ -10,6 +10,7 @@ from ..quic.packet import (
     PACKET_TYPE_INITIAL,
     encode_quic_retry,
     encode_quic_version_negotiation,
+    encode_quic_connection_close,
     pull_quic_header,
 )
 from ..quic.retry import QuicRetryTokenHandler
@@ -45,12 +46,14 @@ class QuicServer(asyncio.DatagramProtocol):
         else:
             self._retry = None
 
+        self.antiddos = True
+
     def close(self):
         for protocol in set(self._protocols.values()):
             protocol.close()
         self._protocols.clear()
         self._transport.close()
-
+    # QuicServer既然是协议，就得实现协议的回调函数
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
         self._transport = cast(asyncio.DatagramTransport, transport)
 
@@ -92,7 +95,7 @@ class QuicServer(asyncio.DatagramProtocol):
             if self._retry is not None:
                 if not header.token:
                     # create a retry token
-                    source_cid = os.urandom(8)
+                    source_cid = os.urandom(8) # Mark retry报文中 src cid取的随机数
                     self._transport.sendto(
                         encode_quic_retry(
                             version=header.version,
@@ -113,11 +116,24 @@ class QuicServer(asyncio.DatagramProtocol):
                             original_destination_connection_id,
                             retry_source_connection_id,
                         ) = self._retry.validate_token(addr, header.token)
+                        if self.antiddos:
+                            self.antiddos = False
+                            self._transport.sendto(
+                                encode_quic_connection_close(
+                                    version=header.version,
+                                    source_cid=os.urandom(8),
+                                    destination_cid=header.source_cid,
+                                    original_destination_cid=header.destination_cid
+                                ),
+                                addr
+                            )
+                            print("SEND CONN CLOSE.....")
+                            return
                     except ValueError:
                         return
             else:
                 original_destination_connection_id = header.destination_cid
-
+            # 上面的版本协商、地址校验，都是链接建立之前的事
             # create new connection
             connection = QuicConnection(
                 configuration=self._configuration,
@@ -129,7 +145,7 @@ class QuicServer(asyncio.DatagramProtocol):
             protocol = self._create_protocol(
                 connection, stream_handler=self._stream_handler
             )
-            protocol.connection_made(self._transport)
+            protocol.connection_made(self._transport)   # 底层传输还是UDP
 
             # register callbacks
             protocol._connection_id_issued_handler = partial(
@@ -146,7 +162,7 @@ class QuicServer(asyncio.DatagramProtocol):
             self._protocols[connection.host_cid] = protocol
 
         if protocol is not None:
-            protocol.datagram_received(data, addr)
+            protocol.datagram_received(data, addr)  # 调用协议回调函数
 
     def _connection_id_issued(self, cid: bytes, protocol: QuicConnectionProtocol):
         self._protocols[cid] = protocol
@@ -213,3 +229,10 @@ async def serve(
         local_addr=(host, port),
     )
     return protocol
+
+"""
+    HTTPServeProtocol(QuicConnectionProtocol)
+        QuicConnection
+QuicServer(UDP Protocol)
+UDP Transport
+"""

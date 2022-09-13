@@ -269,15 +269,19 @@ class QuicPacketBuilder:
                 - packet_size
             )
 
+            # if self._is_client and self._packet_type == PACKET_TYPE_INITIAL:
+            #     print(f"########### {self._packet.is_ack_eliciting=}")
+
             # padding for initial datagram
             if (
                 self._is_client
                 and self._packet_type == PACKET_TYPE_INITIAL
-                and self._packet.is_ack_eliciting
+                and self._packet.is_ack_eliciting   # Mark initial packet < 1200
                 and self.remaining_flight_space
                 and self.remaining_flight_space > padding_size
             ):
                 padding_size = self.remaining_flight_space
+                # print(f"########### {padding_size=}")
 
             # write padding
             if padding_size > 0:
@@ -326,8 +330,9 @@ class QuicPacketBuilder:
             # encrypt in place
             plain = buf.data_slice(self._packet_start, self._packet_start + packet_size)
             buf.seek(self._packet_start)
+            # print(f"{self._header_size = }")
             buf.push_bytes(
-                self._packet_crypto.encrypt_packet(
+                self._packet_crypto.encrypt_packet( # Mark 加密QUIC Frame
                     plain[0 : self._header_size],
                     plain[self._header_size : packet_size],
                     self._packet_number,
